@@ -22,10 +22,13 @@ import javax.net.ssl.StandardConstants;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import tlschannel.impl.*;
+
+import tlschannel.impl.BufferHolder;
+import tlschannel.impl.ByteBufferSet;
+import tlschannel.impl.TlsChannelImpl;
 import tlschannel.impl.TlsChannelImpl.EofException;
+import tlschannel.impl.TlsExplorer;
 import tlschannel.util.TlsChannelCallbackException;
-import tlschannel.util.Util;
 
 /**
  * A server-side {@link TlsChannel}.
@@ -47,21 +50,21 @@ public class ServerTlsChannel implements TlsChannel {
 
     private static class SniSslContextStrategy implements SslContextStrategy {
 
-        private SniSslContextFactory sniSslContextFactory;
+        private final SniSslContextFactory sniSslContextFactory;
 
-        public SniSslContextStrategy(SniSslContextFactory sniSslContextFactory) {
+        public SniSslContextStrategy(final SniSslContextFactory sniSslContextFactory) {
             this.sniSslContextFactory = sniSslContextFactory;
         }
 
         @Override
-        public SSLContext getSslContext(SniReader sniReader) throws IOException, EofException {
+        public SSLContext getSslContext(final SniReader sniReader) throws IOException, EofException {
             // IO block
-            Optional<SNIServerName> nameOpt = sniReader.readSni();
+            final Optional<SNIServerName> nameOpt = sniReader.readSni();
             // call client code
             Optional<SSLContext> chosenContext;
             try {
                 chosenContext = sniSslContextFactory.getSslContext(nameOpt);
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 logger.trace("client code threw exception during evaluation of server name indication", e);
                 throw new TlsChannelCallbackException("SNI callback failed", e);
             }
@@ -75,12 +78,12 @@ public class ServerTlsChannel implements TlsChannel {
 
         private final SSLContext sslContext;
 
-        public FixedSslContextStrategy(SSLContext sslContext) {
+        public FixedSslContextStrategy(final SSLContext sslContext) {
             this.sslContext = sslContext;
         }
 
         @Override
-        public SSLContext getSslContext(SniReader sniReader) {
+        public SSLContext getSslContext(final SniReader sniReader) {
             /*
              * Avoid SNI parsing (using the supplied sniReader) when no decision
              * would be made based on it.
@@ -90,8 +93,8 @@ public class ServerTlsChannel implements TlsChannel {
 
     }
 
-    private static SSLEngine defaultSSLEngineFactory(SSLContext sslContext) {
-        SSLEngine engine = sslContext.createSSLEngine();
+    private static SSLEngine defaultSSLEngineFactory(final SSLContext sslContext) {
+        final SSLEngine engine = sslContext.createSSLEngine();
         engine.setUseClientMode(false);
         return engine;
     }
@@ -104,14 +107,14 @@ public class ServerTlsChannel implements TlsChannel {
         private final SslContextStrategy internalSslContextFactory;
         private Function<SSLContext, SSLEngine> sslEngineFactory = ServerTlsChannel::defaultSSLEngineFactory;
 
-        private Builder(ByteChannel underlying, SSLContext sslContext) {
+        private Builder(final ByteChannel underlying, final SSLContext sslContext) {
             super(underlying);
-            this.internalSslContextFactory = new FixedSslContextStrategy(sslContext);
+            internalSslContextFactory = new FixedSslContextStrategy(sslContext);
         }
 
-        private Builder(ByteChannel wrapped, SniSslContextFactory sslContextFactory) {
+        private Builder(final ByteChannel wrapped, final SniSslContextFactory sslContextFactory) {
             super(wrapped);
-            this.internalSslContextFactory = new SniSslContextStrategy(sslContextFactory);
+            internalSslContextFactory = new SniSslContextStrategy(sslContextFactory);
         }
 
         @Override
@@ -119,7 +122,7 @@ public class ServerTlsChannel implements TlsChannel {
             return this;
         }
 
-        public Builder withEngineFactory(Function<SSLContext, SSLEngine> sslEngineFactory) {
+        public Builder withEngineFactory(final Function<SSLContext, SSLEngine> sslEngineFactory) {
             this.sslEngineFactory = sslEngineFactory;
             return this;
         }
@@ -139,7 +142,7 @@ public class ServerTlsChannel implements TlsChannel {
      * @param underlying a reference to the underlying {@link ByteChannel}
      * @param sslContext a fixed {@link SSLContext} to be used
      */
-    public static Builder newBuilder(ByteChannel underlying, SSLContext sslContext) {
+    public static Builder newBuilder(final ByteChannel underlying, final SSLContext sslContext) {
         return new Builder(underlying, sslContext);
     }
 
@@ -156,7 +159,7 @@ public class ServerTlsChannel implements TlsChannel {
      * @param sslContextFactory a function from an optional SNI to the {@link SSLContext} to be used
      * @see <a href="https://tools.ietf.org/html/rfc6066#section-3">Server Name Indication</a>
      */
-    public static Builder newBuilder(ByteChannel underlying, SniSslContextFactory sslContextFactory) {
+    public static Builder newBuilder(final ByteChannel underlying, final SniSslContextFactory sslContextFactory) {
         return new Builder(underlying, sslContextFactory);
     }
 
@@ -180,17 +183,17 @@ public class ServerTlsChannel implements TlsChannel {
 
     // @formatter:off
     private ServerTlsChannel(
-            ByteChannel underlying,
-            SslContextStrategy internalSslContextFactory,
-            Function<SSLContext, SSLEngine> engineFactory,
-            Consumer<SSLSession> sessionInitCallback,
-            boolean runTasks,
-            BufferAllocator plainBufAllocator,
-            BufferAllocator encryptedBufAllocator,
-            boolean releaseBuffers,
-            boolean waitForCloseConfirmation) {
+            final ByteChannel underlying,
+            final SslContextStrategy internalSslContextFactory,
+            final Function<SSLContext, SSLEngine> engineFactory,
+            final Consumer<SSLSession> sessionInitCallback,
+            final boolean runTasks,
+            final BufferAllocator plainBufAllocator,
+            final BufferAllocator encryptedBufAllocator,
+            final boolean releaseBuffers,
+            final boolean waitForCloseConfirmation) {
         this.underlying = underlying;
-        this.sslContextStrategy = internalSslContextFactory;
+        sslContextStrategy = internalSslContextFactory;
         this.engineFactory = engineFactory;
         this.sessionInitCallback = sessionInitCallback;
         this.runTasks = runTasks;
@@ -251,13 +254,13 @@ public class ServerTlsChannel implements TlsChannel {
     }
 
     @Override
-    public long read(ByteBuffer[] dstBuffers, int offset, int length) throws IOException {
-        ByteBufferSet dest = new ByteBufferSet(dstBuffers, offset, length);
+    public long read(final ByteBuffer[] dstBuffers, final int offset, final int length) throws IOException {
+        final ByteBufferSet dest = new ByteBufferSet(dstBuffers, offset, length);
         TlsChannelImpl.checkReadBuffer(dest);
         if (!sniRead) {
             try {
                 initEngine();
-            } catch (EofException e) {
+            } catch (final EofException e) {
                 return -1;
             }
         }
@@ -265,22 +268,22 @@ public class ServerTlsChannel implements TlsChannel {
     }
 
     @Override
-    public long read(ByteBuffer[] dstBuffers) throws IOException {
+    public long read(final ByteBuffer[] dstBuffers) throws IOException {
         return read(dstBuffers, 0, dstBuffers.length);
     }
 
     @Override
-    public int read(ByteBuffer dstBuffer) throws IOException {
+    public int read(final ByteBuffer dstBuffer) throws IOException {
         return (int) read(new ByteBuffer[] { dstBuffer });
     }
 
     @Override
-    public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
-        ByteBufferSet source = new ByteBufferSet(srcs, offset, length);
+    public long write(final ByteBuffer[] srcs, final int offset, final int length) throws IOException {
+        final ByteBufferSet source = new ByteBufferSet(srcs, offset, length);
         if (!sniRead) {
             try {
                 initEngine();
-            } catch (EofException e) {
+            } catch (final EofException e) {
                 throw new ClosedChannelException();
             }
         }
@@ -288,12 +291,12 @@ public class ServerTlsChannel implements TlsChannel {
     }
 
     @Override
-    public long write(ByteBuffer[] srcs) throws IOException {
+    public long write(final ByteBuffer[] srcs) throws IOException {
         return write(srcs, 0, srcs.length);
     }
 
     @Override
-    public int write(ByteBuffer srcBuffer) throws IOException {
+    public int write(final ByteBuffer srcBuffer) throws IOException {
         return (int) write(new ByteBuffer[] { srcBuffer });
     }
 
@@ -302,7 +305,7 @@ public class ServerTlsChannel implements TlsChannel {
         if (!sniRead) {
             try {
                 initEngine();
-            } catch (EofException e) {
+            } catch (final EofException e) {
                 throw new ClosedChannelException();
             }
         }
@@ -314,7 +317,7 @@ public class ServerTlsChannel implements TlsChannel {
         if (!sniRead) {
             try {
                 initEngine();
-            } catch (EofException e) {
+            } catch (final EofException e) {
                 throw new ClosedChannelException();
             }
         }
@@ -344,7 +347,7 @@ public class ServerTlsChannel implements TlsChannel {
                 SSLEngine engine;
                 try {
                     engine = engineFactory.apply(sslContext);
-                } catch (Exception e) {
+                } catch (final Exception e) {
                     logger.trace("client threw exception in SSLEngine factory", e);
                     throw new TlsChannelCallbackException("SSLEngine creation callback failed", e);
                 }
@@ -361,7 +364,7 @@ public class ServerTlsChannel implements TlsChannel {
     private Optional<SNIServerName> getServerNameIndication() throws IOException, EofException {
         inEncrypted.prepare();
         try {
-            int recordHeaderSize = readRecordHeaderSize();
+            final int recordHeaderSize = readRecordHeaderSize();
             while (inEncrypted.buffer.position() < recordHeaderSize) {
                 if (!inEncrypted.buffer.hasRemaining()) {
                     inEncrypted.enlarge();
@@ -369,11 +372,11 @@ public class ServerTlsChannel implements TlsChannel {
                 TlsChannelImpl.readFromChannel(underlying, inEncrypted.buffer); // IO block
             }
             inEncrypted.buffer.flip();
-            Map<Integer, SNIServerName> serverNames = TlsExplorer.explore(inEncrypted.buffer);
+            final Map<Integer, SNIServerName> serverNames = TlsExplorer.explore(inEncrypted.buffer);
             inEncrypted.buffer.compact();
-            SNIServerName hostName = serverNames.get(StandardConstants.SNI_HOST_NAME);
+            final SNIServerName hostName = serverNames.get(StandardConstants.SNI_HOST_NAME);
             if (hostName != null && hostName instanceof SNIHostName) {
-                SNIHostName sniHostName = (SNIHostName) hostName;
+                final SNIHostName sniHostName = (SNIHostName) hostName;
                 return Optional.of(sniHostName);
             } else {
                 return Optional.empty();
@@ -391,7 +394,7 @@ public class ServerTlsChannel implements TlsChannel {
             TlsChannelImpl.readFromChannel(underlying, inEncrypted.buffer); // IO block
         }
         inEncrypted.buffer.flip();
-        int recordHeaderSize = TlsExplorer.getRequiredSize(inEncrypted.buffer);
+        final int recordHeaderSize = TlsExplorer.getRequiredSize(inEncrypted.buffer);
         inEncrypted.buffer.compact();
         return recordHeaderSize;
     }
